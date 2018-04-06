@@ -1,0 +1,80 @@
+---
+title: "spotify-test"
+author: "Jie Cai"
+date: "4/5/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#install.packages('spotifyr')
+#devtools::install_github('charlie86/spotifyr')
+
+library(spotifyr)
+library(tidyverse)
+library(shiny)
+library(shinythemes)
+
+Sys.setenv(SPOTIFY_CLIENT_ID = 'd528f170ebdf41b9adf3f0b25a0484e0')
+Sys.setenv(SPOTIFY_CLIENT_SECRET = '259a218c1eff414cad4c8ca5cf00ac94')
+
+access_token <- get_spotify_access_token()
+```
+
+```{r get list of artists}
+artists = c('GoldLink', 'Quinn XCII', 'Smallpools')
+```
+
+```{r artist info}
+temp = get_artist_audio_features(' Seeb   ')
+top5 = head(temp[order(-temp$track_popularity),],5)
+top5
+
+# for (artist in artists){
+#   temp = get_artist_audio_features(artist)
+#   df = head(df[order(-df$track_popularity),],5)
+# }
+```
+
+```{r shinyapp}
+shinyApp(
+  ui = fluidPage(
+    theme = shinytheme("cosmo"),
+    
+    # Navbar for 3 pages - Home, About, Github
+    navbarPage("LDOCify", collapsible = TRUE,
+    
+      tabPanel("Artist Explorer",
+               
+        sidebarPanel(
+          selectInput('artist', 'Select Artist', choices = artists),
+          actionButton("go", ("Go"), icon("refresh")),
+          align="center"
+        ),
+        
+        mainPanel(
+          tableOutput('summaryTop5')
+        )
+      ),
+      
+      tabPanel("Vibe Summary",
+        h4("issa vibe")
+      )
+    )
+  ),
+  server = function(input, output, session){
+    top5 = eventReactive(
+      input$go,
+      {
+        temp = get_artist_audio_features(input$artist)
+        top5 = head(temp[order(-temp$track_popularity),],5)
+        top5
+      }, ignoreNULL = FALSE
+    )
+    
+    output$summaryTop5 = renderTable({
+      top5()[,c("track_name","track_popularity","danceability", "energy", "liveness", "valence")]
+    })
+    
+  }
+)
+```
