@@ -6,75 +6,80 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-#install.packages('spotifyr')
-#devtools::install_github('charlie86/spotifyr')
+library(jsonlite)
+library(glue)
+library(magrittr)
+library(stringr)
 
-library(spotifyr)
-library(tidyverse)
-library(shiny)
-library(shinythemes)
+MUSIXMATCH_API_KEY = 'e548b2085bdc0899babb6bf079158faa'
 
-Sys.setenv(SPOTIFY_CLIENT_ID = 'd528f170ebdf41b9adf3f0b25a0484e0')
-Sys.setenv(SPOTIFY_CLIENT_SECRET = '259a218c1eff414cad4c8ca5cf00ac94')
-
-access_token <- get_spotify_access_token()
-```
-
-```{r get list of artists}
-artists = c('GoldLink', 'Quinn XCII', 'Smallpools')
-```
-
-```{r artist info}
-temp = get_artist_audio_features(' Seeb   ')
-top5 = head(temp[order(-temp$track_popularity),],5)
-top5
-
-# for (artist in artists){
-#   temp = get_artist_audio_features(artist)
-#   df = head(df[order(-df$track_popularity),],5)
-# }
-```
-
-```{r shinyapp}
-shinyApp(
-  ui = fluidPage(
-    theme = shinytheme("cosmo"),
-    
-    # Navbar for 3 pages - Home, About, Github
-    navbarPage("LDOCify", collapsible = TRUE,
-    
-      tabPanel("Artist Explorer",
-               
-        sidebarPanel(
-          selectInput('artist', 'Select Artist', choices = artists),
-          actionButton("go", ("Go"), icon("refresh")),
-          align="center"
-        ),
-        
-        mainPanel(
-          tableOutput('summaryTop5')
-        )
-      ),
-      
-      tabPanel("Vibe Summary",
-        h4("issa vibe")
-      )
+get_lyrics = function(spotify_track) {
+  artist_name = spotify_track$artist_name
+  track_name =  spotify_track$track_name
+  album_name = spotify_track$album_name
+  url = glue('http://api.musixmatch.com/ws/1.1/track.search?q_artist={artist_name}&q_track={track_name}&s_track_rating=desc&apikey={MUSIXMATCH_API_KEY}')
+  
+  print(url)
+  
+  response = read_json(URLencode(url))
+  
+  # API error
+  if (response$message$header$status_code != 200) {
+    stop(
+      glue("Got {response$message$header$status_code} instead of 200 for track lookup")
     )
-  ),
-  server = function(input, output, session){
-    top5 = eventReactive(
-      input$go,
-      {
-        temp = get_artist_audio_features(input$artist)
-        top5 = head(temp[order(-temp$track_popularity),],5)
-        top5
-      }, ignoreNULL = FALSE
-    )
-    
-    output$summaryTop5 = renderTable({
-      top5()[,c("track_name","track_popularity","danceability", "energy", "liveness", "valence")]
-    })
-    
   }
-)
+  
+  # No song was found
+  if (length(response$message$body$track_list) == 0) {
+    stop("Couldn't find tracks!")
+  }
+  
+  track_id = response$message$body$track_list[[1]]$track$track_id
+  lyrics_url = glue('http://api.musixmatch.com/ws/1.1/track.lyrics.get?track_id={track_id}&apikey={MUSIXMATCH_API_KEY}')
+  
+  lyrics_response = read_json(URLencode(lyrics_url))
+  
+  # API error
+  if (lyrics_response$message$header$status_code != 200) {
+    glue("Got {lyrics_response$message$header$status_code} instead of 200 for lyrics lookup")
+  }
+  lyrics_response$message$body$lyrics$lyrics_body
+}
+
+clean_lyrics = function(lyrics) {
+  words = lyrics %>%
+    tolower() %>%
+    str_replace('this lyrics is not for commercial use', '') %>%
+    str_replace_all('[\\s]+', ' ') %>%
+    str_replace_all('[^a-z ]', '') %>%
+    str_replace_all('[\\s]+', ' ') %>%
+    trimws() %>%
+    str_split(' ')
+  
+  # Words ends up being a list of length 1, so we unwrap it here
+  words[[1]]
+}
+
+score_lyrics = function(words) {
+  length(unique(words)) / length(words)
+}
+
+score_tracks = function(tracks) {
+  scores = c()
+  for (row in 1:nrow(tracks)) {
+    track = tracks[row,]
+    tryCatch({
+      scores = c(
+        scores, get_lyrics(track) %>% clean_lyrics() %>% score_lyrics()
+      )
+    }, error = function() {
+      scores = c(scores, NA)
+    })
+  }
+  scores
+}
+
+goldlink_top = read.csv('goldlink_top5.csv')
+score_tracks(goldlink_top)
 ```
