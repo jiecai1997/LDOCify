@@ -13,6 +13,8 @@ library(spotifyr)
 library(tidyverse)
 library(shiny)
 library(shinythemes)
+library(fmsb)
+library(plotly)
 
 Sys.setenv(SPOTIFY_CLIENT_ID = 'd528f170ebdf41b9adf3f0b25a0484e0')
 Sys.setenv(SPOTIFY_CLIENT_SECRET = '259a218c1eff414cad4c8ca5cf00ac94')
@@ -20,14 +22,50 @@ Sys.setenv(SPOTIFY_CLIENT_SECRET = '259a218c1eff414cad4c8ca5cf00ac94')
 access_token <- get_spotify_access_token()
 ```
 
-```{r get list of artists}
-artists = c('GoldLink', 'Quinn XCII', 'Smallpools')
+```{r read in artists}
+df = read.csv("LDOC_data.csv")
+artists=df['Artist']
+get_artists("Seeb")['artist_uri']
+#artists = c('GoldLink', 'Quinn XCII', 'Smallpools')
 ```
 
 ```{r artist info}
-temp = get_artist_audio_features(' Seeb   ')
-top5 = head(temp[order(-temp$track_popularity),],5)
-top5
+#temp = get_artist_audio_features('Goldlink')
+top10 = head(temp[order(-temp$track_popularity),],10)
+top10_1 = top10[,c("danceability", "energy", "speechiness", "acousticness", "liveness", "valence")]
+hi = c(colMeans(top10_1))
+top10_2 =rbind(rep(1,length(4)) , rep(0,length(4)), top10_1)
+```
+
+
+```{r}
+p <- plot_ly(
+    type = 'scatterpolar',
+    r = hi,
+    theta = c('A','B','C', 'D', 'E', 'A'),
+    fill = 'toself'
+  ) %>%
+  layout(
+    polar = list(
+      radialaxis = list(
+        visible = T,
+        range = c(0,1)
+      )
+    ),
+    showlegend = F
+  )
+p
+```
+
+```{r}
+
+radarchart(
+  top10_2,
+  axistype=3,
+  cglcol="grey", cglty=1, axislabcol="grey", caxislabels=seq(0,1,0.2), cglwd=0.5,
+  pcol=rgb(0.2,0.5,0.5,0.1), pfcol=rgb(0.2,0.5,0.5,0.1), plwd=2,
+  vlcex=1
+  )
 
 # for (artist in artists){
 #   temp = get_artist_audio_features(artist)
@@ -52,7 +90,8 @@ shinyApp(
         ),
         
         mainPanel(
-          tableOutput('summaryTop5')
+          tableOutput('summaryTop5'),
+          plotOutput('radarPlot')
         )
       ),
       
@@ -62,19 +101,19 @@ shinyApp(
     )
   ),
   server = function(input, output, session){
-    top5 = eventReactive(
+    
+    observeEvent(
       input$go,
       {
         temp = get_artist_audio_features(input$artist)
         top5 = head(temp[order(-temp$track_popularity),],5)
-        top5
+        
+        output$summaryTop5 = renderTable({top5[,c("track_name", "track_popularity","danceability", "energy", "liveness", "valence")]})
+        
+        output$radarPlot = renderPlot({radarchart(top5)})
+        
       }, ignoreNULL = FALSE
     )
-    
-    output$summaryTop5 = renderTable({
-      top5()[,c("track_name","track_popularity","danceability", "energy", "liveness", "valence")]
-    })
-    
   }
 )
 ```
