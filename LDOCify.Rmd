@@ -22,27 +22,64 @@ Sys.setenv(SPOTIFY_CLIENT_SECRET = '259a218c1eff414cad4c8ca5cf00ac94')
 access_token <- get_spotify_access_token()
 ```
 
-```{r read in artists}
+```{r read in artists, create overall DF}
+#read in csv file (df)
 df = read.csv("LDOC_data.csv")
+# get all artists (artists)
 artists=df['Artist']
-get_artists("Seeb")['artist_uri']
-#artists = c('GoldLink', 'Quinn XCII', 'Smallpools')
+# get IDs of all artists (ids)
+ids = list()
+i = 1
+for (artist in artists[[1]]){
+  ids[[i]] = unlist(get_artists(artist)['artist_uri'])[[1]]
+  i = i+1
+}
+# create dataframe of all artists' top 5 songs (top_all)
+top_all = data.frame("track_name"=character(), "track_popularity"=double(), "danceability"=double(), "energy"=double(), "speechiness"=double(), "acousticness"=double(), "liveness"=double(), "valence"=double())
+for (id in ids){
+  print (id)
+  songs = data.frame(get_artist_audio_features(artist_uri = id, use_artist_uri = TRUE))
+  top = head(songs[order(-songs['track_popularity']),],5)
+  top = top[,c("track_name", "track_popularity","danceability", "energy", "speechiness", "acousticness", "liveness", "valence")]
+  top_all = rbind(top_all, top)
+}
 ```
 
-```{r artist info}
-#temp = get_artist_audio_features('Goldlink')
-top10 = head(temp[order(-temp$track_popularity),],10)
-top10_1 = top10[,c("danceability", "energy", "speechiness", "acousticness", "liveness", "valence")]
-hi = c(colMeans(top10_1))
-top10_2 =rbind(rep(1,length(4)) , rep(0,length(4)), top10_1)
+```{r TEST get artist info}
+# test with GOLDLINK
+
+# how to get artist info by name
+get_artist_audio_features('Goldlink')
+
+#how to get artist info by ID (preferred)
+id = unlist(get_artists('Goldlink')['artist_uri'])[[1]]
+get_artist_audio_features(artist_uri = id, use_artist_uri = TRUE)
 ```
 
+```{r TEST get annual info}
+# list of all artists in 2013
+df[df$Year == '2013',]['Artist']
+# create dataframe for annual top tracks (top_annual)
+top_annual = data.frame("track_name"=character(), "track_popularity"=double(), "danceability"=double(), "energy"=double(), "speechiness"=double(), "acousticness"=double(), "liveness"=double(), "valence"=double())
+# for every artist in 2013, get their top songs and add to dataframe top_annual
+for (person in df[df$Year == '2013','Artist']){
+  print (person)
+  person_id = unlist(get_artists(person)['artist_uri'])[[1]]
+  print(person_id)
+  person_songs = get_artist_audio_features(artist_uri = person_id, use_artist_uri = TRUE)
+  person_top5 = head(person_songs[order(-person_songs$track_popularity),],5)
+  person_top5 = person_top5[,c("track_name", "track_popularity", "danceability", "energy", "speechiness", "acousticness", "liveness", "valence")]
+  print(person_top5)
+  top_annual = rbind(top_annual, person_top5)
+}
+```
 
-```{r}
+```{r TEST radar graph}
+# test static plotly radar graph
 p <- plot_ly(
     type = 'scatterpolar',
-    r = hi,
-    theta = c('A','B','C', 'D', 'E', 'A'),
+    r = c(mean(top5$danceability), mean(top5$energy), mean(top5$speechiness), mean(top5$acousticness), mean(top5$liveness), mean(top5$valence)),
+    theta = c("Danceability", "Energy", "Speechiness", "Acousticness", "Liveness", "Valence"),
     fill = 'toself'
   ) %>%
   layout(
@@ -57,61 +94,121 @@ p <- plot_ly(
 p
 ```
 
-```{r}
-
-radarchart(
-  top10_2,
-  axistype=3,
-  cglcol="grey", cglty=1, axislabcol="grey", caxislabels=seq(0,1,0.2), cglwd=0.5,
-  pcol=rgb(0.2,0.5,0.5,0.1), pfcol=rgb(0.2,0.5,0.5,0.1), plwd=2,
-  vlcex=1
-  )
-
-# for (artist in artists){
-#   temp = get_artist_audio_features(artist)
-#   df = head(df[order(-df$track_popularity),],5)
-# }
-```
-
 ```{r shinyapp}
 shinyApp(
   ui = fluidPage(
     theme = shinytheme("cosmo"),
     
-    # Navbar for 3 pages - Home, About, Github
-    navbarPage("LDOCify", collapsible = TRUE,
+    # READ IN DATAFRAME
+    df = read.csv('LDOC_data.csv'),
     
-      tabPanel("Artist Explorer",
-               
-        sidebarPanel(
-          selectInput('artist', 'Select Artist', choices = artists),
-          actionButton("go", ("Go"), icon("refresh")),
-          align="center"
-        ),
-        
-        mainPanel(
-          tableOutput('summaryTop5'),
-          plotOutput('radarPlot')
-        )
-      ),
+    # navbar - 1 page LCOCify
+    navbarPage("LDOCify", collapsible = TRUE,
+    sidebarLayout(
       
-      tabPanel("Vibe Summary",
-        h4("issa vibe")
+      # sidepanel - user input
+      sidebarPanel(
+        # artist input, select from dataframe artists
+        selectInput('artist', 'Artist', choices = df['Artist']),
+        # go button to trigger action
+        actionButton("go", ("Go"), icon("refresh")),
+        align="center"
+    ),
+      
+      # mainpanel - output 
+      mainPanel(
+        # output artist name
+        fluidRow(h2(textOutput('artist')),align='center'),
+        # output radar graph
+        plotlyOutput('plotTop5'),
+        # output artist top5 table
+        tableOutput('tableTop5'),
+        # output annual top5 table
+        tableOutput('tableTopAnnual')
       )
+    )
     )
   ),
   server = function(input, output, session){
     
+    # observe event - ALL OUTPUTS BELOW ARE TRIGGER UPON BUTTON PRESS, WITH DEFAULT OUTPUT SET TO FIRST ARTIST ON LIST
     observeEvent(
+      # input button, trigger all actions below
       input$go,
       {
-        temp = get_artist_audio_features(input$artist)
-        top5 = head(temp[order(-temp$track_popularity),],5)
+        # DATA/VARIABLE PROCESSING
+        # get artist ID (id)
+        id = unlist(get_artists(input$artist)['artist_uri'])[[1]]
+        # get artist songs (songs)
+        songs = get_artist_audio_features(artist_uri = id, use_artist_uri = TRUE)
+        # get artists top 5 songs w/ filtered rows (top5)
+        top5 = head(songs[order(-songs$track_popularity),],5)
+        top5 = top5[,c("track_name", "track_popularity","danceability", "energy", "speechiness", "acousticness", "liveness", "valence")]
+        # get artist name (artist)
+        artist = input$artist
+        # get artist performance year (year)
+        year = df[df$Artist == artist,'Year']
         
-        output$summaryTop5 = renderTable({top5[,c("track_name", "track_popularity","danceability", "energy", "liveness", "valence")]})
+        # create dataframe for annual top tracks for corresponding year (top_annual)
+        top_annual = data.frame("track_name"=character(), "track_popularity"=double(), "danceability"=double(), "energy"=double(), "speechiness"=double(), "acousticness"=double(), "liveness"=double(), "valence"=double())
+        # for every artist in the year, get their top songs and add to dataframe top_annual
+        for (person in df[df$Year == year,'Artist']){
+          person_id = unlist(get_artists(person)['artist_uri'])[[1]]
+          person_songs = get_artist_audio_features(artist_uri = person_id, use_artist_uri = TRUE)
+          person_top5 = head(person_songs[order(-person_songs['track_popularity']),],5)
+          person_top5 = person_top5[,c("track_name", "track_popularity","danceability", "energy", "speechiness", "acousticness", "liveness", "valence")]
+          top_annual = rbind(top_annual, person_top5)
+        }
         
-        output$radarPlot = renderPlot({radarchart(top5)})
+        # OUTPUTS 
         
+        # output table: artist top5 (tableTop5)
+        output$tableTop5 = renderTable({top5})
+        
+        # output table: annual top5 (tableTopAnnual)
+        output$tableTopAnnual = renderTable({top_annual})
+        
+        # output text: artist's name
+        output$artist = renderText({artist})
+        
+        # output radar plot of music attributes (dancability, energy, speechiness, liveness, valence) with 3 traces
+        # bottom trace: overall LDOC trace
+        # middle trace: annual LDOC trace
+        # top trace: individual artist trace
+        output$plotTop5 = renderPlotly({
+          plot_ly(
+          type = 'scatterpolar',
+          fill = 'toself',
+          # bottom trace
+          r = c(mean(top_music$danceability), mean(top_music$energy), mean(top_music$speechiness), mean(top_music$liveness), mean(top_music$valence)),
+          theta = c("Danceability", "Energy", "Speechiness", "Liveness", "Valence"),
+          name = 'Historical LDOC Average',
+          opacity=0.7
+          ) %>%
+          # middle trace
+          add_trace(
+          r = c(mean(top_annual$danceability), mean(top_annual$energy), mean(top_annual$speechiness), mean(top_annual$liveness), mean(top_annual$valence)),
+          theta = c("Danceability", "Energy", "Speechiness", "Liveness", "Valence"),
+          name = paste(year, 'LDOC Average'),
+          opacity=0.7
+          ) %>%
+          # top trace
+          add_trace(
+          r = c(mean(top5$danceability), mean(top5$energy), mean(top5$speechiness), mean(top5$liveness), mean(top5$valence)),
+          theta = c("Danceability", "Energy", "Speechiness", "Liveness", "Valence"),
+          name = paste0(artist),
+          opacity=0.7
+          ) %>%
+          layout(
+            polar = list(
+              radialaxis = list(
+                visible = T,
+                range = c(0,1)
+              )
+            ),
+            showlegend = T
+          )
+        })
       }, ignoreNULL = FALSE
     )
   }
